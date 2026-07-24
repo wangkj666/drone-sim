@@ -1,0 +1,58 @@
+# 无人机自主栖息与抓取 — 全局配置
+
+drone:
+  mass: 1.5           # kg
+  arm_length: 0.25    # m, 电机到中心距离
+  frame_height: 0.06  # m, 机身厚
+  frame_width: 0.15   # m, 机身宽
+  frame_length: 0.2   # m, 机身长
+  motor_dia: 0.08     # m, 电机直径
+  motor_height: 0.03  # m, 电机高
+  prop_length: 0.12   # m, 桨叶长
+  prop_width: 0.02    # m, 桨叶宽
+  init_position: [0, 0, 0.5]  # 从地面附近起飞
+
+control:
+  # 外环：位置 PID — kp/ki/kd 分别为 [x, y, z]
+  pos_pid:
+    kp: [1.0, 1.0, 3.0]
+    ki: [0.05, 0.05, 0.3]
+    kd: [0.8, 0.8, 2.0]
+    integral_max: 5.0
+
+  # 内环：姿态 PID — kp/ki/kd 分别为 [roll, pitch, yaw]
+  att_pid:
+    kp: [5.0, 5.0, 2.0]
+    ki: [0.01, 0.01, 0.01]
+    kd: [1.0, 1.0, 0.5]
+    integral_max: 1.0
+
+  max_tilt: 0.5          # rad
+  max_thrust: 50.0       # N
+  min_thrust: 0.0        # N
+  thrust_to_torque: 0.05
+  mixer_type: "x"
+
+sensors:
+  camera:
+    width: 640
+    height: 480
+    fps: 30
+    fov: 90
+  imu:
+    freq: 100
+  depth:
+    enabled: true
+
+target:
+  use_aruco: true
+  aruco_id: 42
+  aruco_size: 0.1
+  object_height: 1.0
+  approach_distance: 0.5
+  hover_height: 2.0
+
+sim:
+  physics_dt: 0.00833    # 120Hz (更精细的物理步长)
+  headless: false
+  gravity: 9.81

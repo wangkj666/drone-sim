@@ -1,0 +1,17 @@
+# 虚拟环境 (几十GB)
+isaacsim_env/
+
+# 相机截图
+drone_project/cam_frames/
+drone_project/markers/
+
+# Python缓存
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Claude
+.claude/
