@@ -28,6 +28,8 @@ control:
     integral_max: 1.0
 
   max_tilt: 0.5          # rad
+  max_xy_accel: 4.0      # m/s^2, 限制水平指令以避免大倾角突变
+  max_z_accel: 5.0       # m/s^2, 限制垂直加速度指令
   max_thrust: 50.0       # N
   min_thrust: 0.0        # N
   thrust_to_torque: 0.05

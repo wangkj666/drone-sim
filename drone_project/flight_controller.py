@@ -7,24 +7,47 @@ import numpy as np
 
 
 class PID:
-    """单轴PID控制器"""
-    def __init__(self, kp: float, ki: float, kd: float, integral_max: float):
+    """单轴 PID 控制器。
+
+    当能够获得被控量的速度时，D 项使用测量速度而不是误差差分，避免
+    目标位置突变时产生较大的 derivative kick。
+    """
+    def __init__(self, kp: float, ki: float, kd: float, integral_max: float,
+                 output_limit: float | None = None):
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.integral_max = integral_max
+        self.output_limit = output_limit
         self.reset()
 
     def reset(self):
         self._integral = 0.0
         self._prev_error = 0.0
 
-    def step(self, error: float, dt: float) -> float:
-        self._integral += error * dt
-        self._integral = np.clip(self._integral, -self.integral_max, self.integral_max)
-        derivative = (error - self._prev_error) / dt if dt > 0 else 0.0
+    def step(self, error: float, dt: float, measurement_rate: float | None = None) -> float:
+        candidate_integral = np.clip(
+            self._integral + error * dt,
+            -self.integral_max,
+            self.integral_max,
+        )
+        derivative = ((error - self._prev_error) / dt if dt > 0 else 0.0)
+        if measurement_rate is not None:
+            derivative = -measurement_rate
+
+        unclamped = self.kp * error + self.ki * candidate_integral + self.kd * derivative
+        output = unclamped
+        if self.output_limit is not None:
+            output = np.clip(unclamped, -self.output_limit, self.output_limit)
+            # 饱和时仅允许积分项帮助控制量回到可用范围，避免积分饱和。
+            if output != unclamped and error * unclamped > 0:
+                candidate_integral = self._integral
+                unclamped = self.kp * error + self.ki * candidate_integral + self.kd * derivative
+                output = np.clip(unclamped, -self.output_limit, self.output_limit)
+
+        self._integral = candidate_integral
         self._prev_error = error
-        return self.kp * error + self.ki * self._integral + self.kd * derivative
+        return output
 
 
 class FlightController:
@@ -56,9 +79,9 @@ class FlightController:
         ki = cfg["pos_pid"]["ki"]
         kd = cfg["pos_pid"]["kd"]
         imax = cfg["pos_pid"]["integral_max"]
-        self.pid_x = PID(kp[0], ki[0], kd[0], imax)
-        self.pid_y = PID(kp[1], ki[1], kd[1], imax)
-        self.pid_z = PID(kp[2], ki[2], kd[2], imax)
+        self.pid_x = PID(kp[0], ki[0], kd[0], imax, cfg["max_xy_accel"])
+        self.pid_y = PID(kp[1], ki[1], kd[1], imax, cfg["max_xy_accel"])
+        self.pid_z = PID(kp[2], ki[2], kd[2], imax, cfg["max_z_accel"])
 
         # 内环姿态PID (roll, pitch, yaw 各一组)
         akp = cfg["att_pid"]["kp"]
@@ -104,21 +127,21 @@ class FlightController:
         m = self.mass
 
         # ── 外环：位置误差 → 加速度 ──
-        ax = self.pid_x.step(self.desired_pos[0] - self.current_pos[0], dt)
-        ay = self.pid_y.step(self.desired_pos[1] - self.current_pos[1], dt)
-        az = self.pid_z.step(self.desired_pos[2] - self.current_pos[2], dt)
-
-        # 速度阻尼
-        ax -= 0.5 * self.current_vel[0]
-        ay -= 0.5 * self.current_vel[1]
-        az -= 0.5 * self.current_vel[2]
+        ax = self.pid_x.step(self.desired_pos[0] - self.current_pos[0], dt,
+                             self.current_vel[0])
+        ay = self.pid_y.step(self.desired_pos[1] - self.current_pos[1], dt,
+                             self.current_vel[1])
+        az = self.pid_z.step(self.desired_pos[2] - self.current_pos[2], dt,
+                             self.current_vel[2])
 
         # ── 重力补偿 + PID → 总推力 + 期望姿态 ──
         total_thrust = m * np.sqrt(max(ax**2 + ay**2, 1e-6) + (g + max(az, -g*0.5))**2)
         total_thrust = np.clip(total_thrust, 0, m * g * 3)  # 上限3倍重力
 
-        desired_roll  = np.clip(np.arctan2(ay, g + az), -self.max_tilt, self.max_tilt)
-        desired_pitch = np.clip(np.arctan2(-ax, np.sqrt(max(ay**2 + (g + az)**2, 1e-6))),
+        # 机体系为 X 向右、Y 向前、Z 向上。正 roll 产生 -Y 水平推力，
+        # 正 pitch 产生 +X 水平推力，因此这里的符号必须与混控器一致。
+        desired_roll  = np.clip(np.arctan2(-ay, g + az), -self.max_tilt, self.max_tilt)
+        desired_pitch = np.clip(np.arctan2(ax, np.sqrt(max(ay**2 + (g + az)**2, 1e-6))),
                                  -self.max_tilt, self.max_tilt)
 
         # ── 内环：姿态误差 → 力矩 ──
@@ -126,9 +149,9 @@ class FlightController:
         pitch_err = self._angle_error(desired_pitch, self.current_att[1])
         yaw_err   = self._angle_error(self.desired_yaw, self.current_att[2])
 
-        roll_moment  = self.pid_roll.step(roll_err, dt)   - 0.3 * self.current_angvel[0]
-        pitch_moment = self.pid_pitch.step(pitch_err, dt) - 0.3 * self.current_angvel[1]
-        yaw_moment   = self.pid_yaw.step(yaw_err, dt)    - 0.3 * self.current_angvel[2]
+        roll_moment  = self.pid_roll.step(roll_err, dt, self.current_angvel[0])
+        pitch_moment = self.pid_pitch.step(pitch_err, dt, self.current_angvel[1])
+        yaw_moment   = self.pid_yaw.step(yaw_err, dt, self.current_angvel[2])
 
         # ── 混控器 → 电机推力 ──
         return self.mixer.mix(total_thrust, roll_moment, pitch_moment, yaw_moment)
