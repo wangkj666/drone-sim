@@ -10,7 +10,7 @@ drone:
   motor_height: 0.03  # m, 电机高
   prop_length: 0.12   # m, 桨叶长
   prop_width: 0.02    # m, 桨叶宽
-  init_position: [0, 0, 3.0]  # 空中启动（地面接触力会阻止起飞）
+  init_position: [0, 0, 0.5]  # 从地面起飞（运动学模式不受地面接触影响）
 
 control:
   # "pid" 为验证基线；确认闭环悬停后可改为 "mpc"
