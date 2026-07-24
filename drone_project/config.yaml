@@ -13,6 +13,8 @@ drone:
   init_position: [0, 0, 0.5]  # 从地面附近起飞
 
 control:
+  # "pid" 为验证基线；确认闭环悬停后可改为 "mpc"
+  outer_loop: "pid"
   # 外环：位置 PID — kp/ki/kd 分别为 [x, y, z]
   pos_pid:
     kp: [1.0, 1.0, 3.0]
@@ -30,6 +32,14 @@ control:
   max_tilt: 0.5          # rad
   max_xy_accel: 4.0      # m/s^2, 限制水平指令以避免大倾角突变
   max_z_accel: 5.0       # m/s^2, 限制垂直加速度指令
+
+  # MPC 只替换位置外环，姿态内环和混控器继续使用 PID。
+  mpc:
+    horizon: 12
+    update_period: 4     # 每 4 个物理步求解一次，其他步保持上一条加速度指令
+    position_weight: [12.0, 12.0, 18.0]
+    velocity_weight: [3.0, 3.0, 4.0]
+    control_weight: [0.3, 0.3, 0.5]
   max_thrust: 50.0       # N
   min_thrust: 0.0        # N
   thrust_to_torque: 0.05

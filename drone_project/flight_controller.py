@@ -50,6 +50,61 @@ class PID:
         return output
 
 
+class PositionMPC:
+    """基于离散双积分模型的逐轴有限时域 MPC 外环。
+
+    使用投影梯度法求解带加速度上下限的二次规划，避免引入额外求解器依赖。
+    """
+
+    def __init__(self, dt: float, horizon: int, position_weight: float,
+                 velocity_weight: float, control_weight: float,
+                 acceleration_limit: float):
+        self.dt = dt
+        self.horizon = horizon
+        self.position_weight = position_weight
+        self.velocity_weight = velocity_weight
+        self.control_weight = control_weight
+        self.acceleration_limit = acceleration_limit
+        self._warm_start = np.zeros(horizon)
+        self._position_matrix, self._velocity_matrix = self._prediction_matrices()
+        self._hessian = (
+            position_weight * self._position_matrix.T @ self._position_matrix
+            + velocity_weight * self._velocity_matrix.T @ self._velocity_matrix
+            + control_weight * np.eye(horizon)
+        )
+        self._gradient_step = 1.0 / (2.0 * np.linalg.eigvalsh(self._hessian).max())
+
+    def _prediction_matrices(self):
+        position_matrix = np.zeros((self.horizon, self.horizon))
+        velocity_matrix = np.zeros((self.horizon, self.horizon))
+        for row in range(self.horizon):
+            for column in range(row + 1):
+                position_matrix[row, column] = self.dt**2 * (row - column + 0.5)
+                velocity_matrix[row, column] = self.dt
+        return position_matrix, velocity_matrix
+
+    def step(self, position: float, velocity: float, target: float) -> float:
+        """求解未来 horizon 步的加速度序列，仅执行第一步。"""
+        steps = np.arange(1, self.horizon + 1)
+        free_position = position + steps * self.dt * velocity
+        free_velocity = np.full(self.horizon, velocity)
+        linear_term = (
+            self.position_weight * self._position_matrix.T @ (free_position - target)
+            + self.velocity_weight * self._velocity_matrix.T @ free_velocity
+        )
+
+        controls = self._warm_start.copy()
+        for _ in range(24):
+            gradient = 2.0 * (self._hessian @ controls + linear_term)
+            controls = np.clip(
+                controls - self._gradient_step * gradient,
+                -self.acceleration_limit,
+                self.acceleration_limit,
+            )
+        self._warm_start = np.concatenate((controls[1:], controls[-1:]))
+        return float(controls[0])
+
+
 class FlightController:
     """
     四旋翼级联PID飞行控制器
@@ -73,6 +128,7 @@ class FlightController:
         self.g = sim["gravity"]
         self.max_tilt = cfg["max_tilt"]
         self.dt = sim["physics_dt"]
+        self.outer_loop = cfg.get("outer_loop", "pid")
 
         # 外环位置PID (x, y, z 各一组)
         kp = cfg["pos_pid"]["kp"]
@@ -82,6 +138,23 @@ class FlightController:
         self.pid_x = PID(kp[0], ki[0], kd[0], imax, cfg["max_xy_accel"])
         self.pid_y = PID(kp[1], ki[1], kd[1], imax, cfg["max_xy_accel"])
         self.pid_z = PID(kp[2], ki[2], kd[2], imax, cfg["max_z_accel"])
+
+        self._mpc_update_period = 1
+        self._mpc_frame = 0
+        self._mpc_accel = np.zeros(3)
+        self._mpc = None
+        if self.outer_loop == "mpc":
+            mpc_cfg = cfg["mpc"]
+            self._mpc_update_period = mpc_cfg["update_period"]
+            control_dt = self.dt * self._mpc_update_period
+            self._mpc = [
+                PositionMPC(control_dt, mpc_cfg["horizon"],
+                            mpc_cfg["position_weight"][axis],
+                            mpc_cfg["velocity_weight"][axis],
+                            mpc_cfg["control_weight"][axis],
+                            cfg["max_xy_accel"] if axis < 2 else cfg["max_z_accel"])
+                for axis in range(3)
+            ]
 
         # 内环姿态PID (roll, pitch, yaw 各一组)
         akp = cfg["att_pid"]["kp"]
@@ -97,6 +170,8 @@ class FlightController:
         # 状态
         self.desired_pos = np.zeros(3)
         self.desired_yaw = 0.0
+        self._mpc_frame = 0
+        self._mpc_accel = np.zeros(3)
         self.current_pos = np.zeros(3)
         self.current_vel = np.zeros(3)
         self.current_att = np.zeros(3)  # [roll, pitch, yaw]
@@ -127,12 +202,22 @@ class FlightController:
         m = self.mass
 
         # ── 外环：位置误差 → 加速度 ──
-        ax = self.pid_x.step(self.desired_pos[0] - self.current_pos[0], dt,
-                             self.current_vel[0])
-        ay = self.pid_y.step(self.desired_pos[1] - self.current_pos[1], dt,
-                             self.current_vel[1])
-        az = self.pid_z.step(self.desired_pos[2] - self.current_pos[2], dt,
-                             self.current_vel[2])
+        if self._mpc is None:
+            ax = self.pid_x.step(self.desired_pos[0] - self.current_pos[0], dt,
+                                 self.current_vel[0])
+            ay = self.pid_y.step(self.desired_pos[1] - self.current_pos[1], dt,
+                                 self.current_vel[1])
+            az = self.pid_z.step(self.desired_pos[2] - self.current_pos[2], dt,
+                                 self.current_vel[2])
+        else:
+            if self._mpc_frame % self._mpc_update_period == 0:
+                self._mpc_accel = np.array([
+                    controller.step(self.current_pos[axis], self.current_vel[axis],
+                                    self.desired_pos[axis])
+                    for axis, controller in enumerate(self._mpc)
+                ])
+            self._mpc_frame += 1
+            ax, ay, az = self._mpc_accel
 
         # ── 重力补偿 + PID → 总推力 + 期望姿态 ──
         total_thrust = m * np.sqrt(max(ax**2 + ay**2, 1e-6) + (g + max(az, -g*0.5))**2)

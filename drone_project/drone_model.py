@@ -170,6 +170,10 @@ class DroneModel:
         if self._rigid_view is None:
             return
 
+        motor_thrusts = np.asarray(motor_thrusts, dtype=float)
+        if motor_thrusts.shape != (4,) or not np.all(np.isfinite(motor_thrusts)):
+            raise ValueError("motor_thrusts must contain four finite values")
+
         state = self.get_state()
         if state is None:
             return
@@ -194,6 +198,7 @@ class DroneModel:
         self._rigid_view.apply_forces_and_torques_at_pos(
             forces=total_force.reshape(1, 3),
             torques=total_torque.reshape(1, 3),
+            positions=state["position"].reshape(1, 3),
             indices=[0],
             is_global=True,
         )

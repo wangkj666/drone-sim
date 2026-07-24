@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "drone_project"))
 
-from flight_controller import PID
+from flight_controller import PID, PositionMPC
 from mixer import QuadMixer
 
 
@@ -26,6 +26,23 @@ class PIDTest(unittest.TestCase):
             pid.step(2.0, dt=0.1)
 
         self.assertEqual(pid._integral, 0.0)
+
+
+class MPCTest(unittest.TestCase):
+    def test_mpc_accelerates_toward_a_higher_target(self):
+        controller = PositionMPC(
+            dt=0.04,
+            horizon=12,
+            position_weight=12.0,
+            velocity_weight=3.0,
+            control_weight=0.3,
+            acceleration_limit=4.0,
+        )
+
+        acceleration = controller.step(position=0.0, velocity=0.0, target=2.0)
+
+        self.assertGreater(acceleration, 0.0)
+        self.assertLessEqual(acceleration, 4.0)
 
 
 class MixerTest(unittest.TestCase):

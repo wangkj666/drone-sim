@@ -27,6 +27,13 @@ drone = DroneModel(config).build(world)
 controller = FlightController(config, QuadMixer(config))
 controller.set_target([0.0, 0.0, 2.0])
 world.reset()
+world.play()
+
+# 让 PhysX 和 RigidPrimView 在控制器读取状态前完成初始化。
+for _ in range(2):
+    world.step(render=True)
+
+print("Closed-loop hover started: target=(0.0, 0.0, 2.0)")
 
 frame = 0
 while simulation_app.is_running():
@@ -34,11 +41,13 @@ while simulation_app.is_running():
     controller.update_state(
         state["position"], state["velocity"], state["attitude"], state["angular_velocity"]
     )
-    drone.apply_rotor_forces(controller.compute_control())
+    motor_thrusts = controller.compute_control()
+    drone.apply_rotor_forces(motor_thrusts)
     world.step(render=True)
 
     frame += 1
     if frame % 120 == 0:
-        print(f"z={state['position'][2]:.2f}, velocity_z={state['velocity'][2]:.2f}")
+        print(f"z={state['position'][2]:.2f}, velocity_z={state['velocity'][2]:.2f}, "
+              f"motor_mean={motor_thrusts.mean():.2f} N")
 
 simulation_app.close()
