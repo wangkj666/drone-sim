@@ -1,15 +1,15 @@
 # 无人机自主栖息与抓取 — 全局配置
 
 drone:
-  mass: 1.5           # kg
-  arm_length: 0.25    # m, 电机到中心距离
-  frame_height: 0.06  # m, 机身厚
-  frame_width: 0.15   # m, 机身宽
-  frame_length: 0.2   # m, 机身长
-  motor_dia: 0.08     # m, 电机直径
-  motor_height: 0.03  # m, 电机高
-  prop_length: 0.12   # m, 桨叶长
-  prop_width: 0.02    # m, 桨叶宽
+  mass: 1.5           # kg, F570含电池实测
+  arm_length: 0.285   # m, 轴距570mm
+  frame_height: 0.04  # m, 碳纤中心板3mm+设备
+  frame_width: 0.20   # m, 中心板宽
+  frame_length: 0.22  # m, 中心板长
+  motor_dia: 0.028    # m, 2212电机
+  motor_height: 0.025 # m
+  prop_length: 0.254  # m, 1045桨(10寸)
+  prop_width: 0.025   # m
   init_position: [0, 0, 0.5]  # 从地面起飞（运动学模式不受地面接触影响）
 
 control:
