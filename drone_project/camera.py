@@ -37,7 +37,15 @@ class DroneCamera:
             cam_xf.AddTranslateOp().Set(Gf.Vec3d(0, 0, -0.15))  # 无人机下方15cm
 
         self._camera.initialize()  # 在设置位姿之后初始化
-        print("[Camera] pos: z=-0.15 below drone, no rotation (default -Z = down)")
+
+        # 广角镜头: 默认视角只有 ~24°, 低空时目标会跑出视野。
+        # 按目标水平视角反算焦距 (孔径因相机而异, 不写死焦距值)。
+        import math
+        target_hfov = math.radians(80.0)
+        h_ap = self._camera.get_horizontal_aperture()
+        focal = h_ap / (2.0 * math.tan(target_hfov / 2.0))
+        self._camera.set_focal_length(focal)
+        print(f"[Camera] pos: z=-0.15 below drone, focal={focal:.2f}mm (hfov~80deg)")
 
         # 渲染产品 + 标注器
         rp = rep.create.render_product(self.prim_path, self.resolution)

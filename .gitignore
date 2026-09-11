@@ -15,3 +15,22 @@ __pycache__/
 
 # Claude
 .claude/
+
+# ── 大文件 / 第三方资料 (不入库) ──
+# WHEELTEC 厂商资料包 (含视频/压缩包, 数GB)
+WHEELTEC F570 四轴飞行器附送资料_2025.02.11/
+
+# 3D 模型文件 (CAD/网格, 几十MB级)
+*.stp
+*.stl
+*.step
+model.obj
+model.usd
+model.usdc
+model.usda
+model.usd.mtl
+model.mtl
+f570.glb
+f570.usdc
+f570_low.glb
+textures/

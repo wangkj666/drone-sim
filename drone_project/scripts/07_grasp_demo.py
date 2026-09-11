@@ -26,37 +26,43 @@ with open(cfg_path, "r", encoding="utf-8") as f:
 world = World(physics_dt=config["sim"]["physics_dt"])
 world.scene.add_default_ground_plane()
 
-# 目标方块
-create_prim("/World/Target", "Cube",
-            position=np.array([0.3, 0.0, 0.2]),
-            scale=np.array([0.12, 0.12, 0.25]))
-set_prim_property("/World/Target", "primvars:displayColor", [(1, 0.2, 0.2)])
+# USD 操控 (先拿到 stage)
+import omni.usd
+from pxr import UsdGeom, Gf
+stage = omni.usd.get_context().get_stage()
 
-drone = DroneModel(config).build(world)
+# ── 目标方块: 尺寸匹配夹爪闭合间距(0.125m), 保证能夹住 ──
+TARGET_POS = np.array([0.30, 0.0, 0.07])  # 0.07 = 半高, 底面刚好贴地
+CAMERA_OFFSET = 0.15   # 相机装在机心下方 0.15m
+TARGET_TOP = 0.14      # 目标顶面离地高度 (用于修正测距)
+GRIPPER_X = 0.0        # 弯齿条左右对称, 目标停在机身正下方即可
+create_prim("/World/Target", "Cube",
+            position=TARGET_POS,
+            scale=np.array([0.05, 0.05, 0.07]))   # 0.10×0.10×0.14, 宽<0.125
+set_prim_property("/World/Target", "primvars:displayColor", [(1, 0.1, 0.1)])
+
+# 复用 Cube 自带的 translate op 移动目标
+target_xf = UsdGeom.Xformable(stage.GetPrimAtPath("/World/Target"))
+target_translate = None
+for op in target_xf.GetOrderedXformOps():
+    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+        target_translate = op
+        break
+
+drone = DroneModel(config).build(world, kinematic=True)
 world.reset()
 camera = DroneCamera(prim_path="/World/Drone/Camera", resolution=(640, 480))
 camera.initialize()
 detector = ColorDetector(camera_matrix=camera.get_intrinsics())
 gripper = Gripper().build()
 
-# USD 操控
-import omni.usd
-from pxr import UsdGeom, Gf
-stage = omni.usd.get_context().get_stage()
+# 无人机 translate op
 drone_prim = stage.GetPrimAtPath("/World/Drone")
 xf = UsdGeom.Xformable(drone_prim)
 translate_op = None
 for op in xf.GetOrderedXformOps():
     if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
         translate_op = op
-        break
-
-# 目标物体的 Xform (抓取后跟着动)
-target_xf = UsdGeom.Xformable(stage.GetPrimAtPath("/World/Target"))
-target_translate = None
-for op in target_xf.GetOrderedXformOps():
-    if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-        target_translate = op
         break
 
 dt = config["sim"]["physics_dt"]
@@ -66,9 +72,10 @@ current = np.array(config["drone"]["init_position"], dtype=float)
 # 状态机
 phase = 0  # 0起飞 1搜索 2接近 3开臂下降 4闭臂 5返航 6完成
 target_pos = None
-hover_target = np.array([0.0, 0.0, 2.5])
+hover_target = np.array([0.0, 0.0, 1.5])
 hold = 0
 grabbed = False
+grab_offset = None    # 抓取瞬间物体相对无人机的偏移
 
 print("=" * 55)
 print("  侧臂抓取演示")
@@ -90,18 +97,21 @@ while simulation_app.is_running():
     # 夹爪平滑动画
     gripper.update(dt)
 
-    # 抓取后物体跟着无人机走
-    if grabbed and target_translate:
-        target_translate.Set(Gf.Vec3d(current[0] + 0.05, current[1], 0.2))
+    # 抓取后物体保持"抓取瞬间"与无人机的相对位置, 随无人机一起移动
+    if grabbed and target_translate is not None and grab_offset is not None:
+        p = current + grab_offset
+        target_translate.Set(Gf.Vec3d(p[0], p[1], p[2]))
 
     world.step(render=True)
     frame += 1
 
-    # 感知
+    # 感知 (距离要扣掉相机在机心下方的偏移和目标高度, 否则算出的坐标会偏大)
     if frame % 20 == 0 and target_pos is None:
         rgb = camera.get_rgb()
         if rgb is not None:
-            for _, xyz, _ in detector.detect(rgb, drone_pos=current):
+            z_eff = current[2] - CAMERA_OFFSET - TARGET_TOP
+            seen = np.array([current[0], current[1], z_eff])
+            for _, xyz, _ in detector.detect(rgb, drone_pos=seen):
                 target_pos = xyz
                 break
 
@@ -112,16 +122,17 @@ while simulation_app.is_running():
     elif phase == 1:
         hold -= 1
         if target_pos is not None:
-            hover_target[:2] = target_pos[:2]
+            # 夹爪在机身右侧, 所以无人机要停在目标左侧, 让目标落在两臂之间
+            hover_target[:2] = target_pos[:2] + np.array([-GRIPPER_X, 0.0])
             phase = 2
-            print(f"  [{frame:4d}] 发现目标 ({target_pos[0]:.2f},{target_pos[1]:.2f})")
+            print(f"  [{frame:4d}] 发现目标 ({target_pos[0]:.2f},{target_pos[1]:.2f}), 飞至夹爪对准")
 
     elif phase == 2:
         if target_pos is not None:
-            hover_target[:2] = target_pos[:2]
+            hover_target[:2] = target_pos[:2] + np.array([-GRIPPER_X, 0.0])
         if d < 0.3:
             gripper.open()  # 先张开臂
-            hover_target[2] = 0.55
+            hover_target[2] = 0.26   # 降到弯齿条能包住目标的高度
             phase, hold = 3, 60
             print(f"  [{frame:4d}] 开臂, 下降抓取")
 
@@ -136,8 +147,15 @@ while simulation_app.is_running():
         hold -= 1
         if hold <= 0:
             grabbed = True
+            # 记录抓取瞬间物体相对无人机的位置, 之后严格保持
+            if target_translate is not None:
+                op = target_translate.Get()
+                grab_offset = np.array([op[0] - current[0],
+                                        op[1] - current[1],
+                                        op[2] - current[2]])
+                print(f"  [{frame:4d}] 抓取偏移量记录: {np.round(grab_offset, 3)}")
             hover_target[:2] = [0, 0]
-            hover_target[2] = 2.0
+            hover_target[2] = 1.5
             phase = 5
             print(f"  [{frame:4d}] 携物返航")
 
@@ -148,7 +166,13 @@ while simulation_app.is_running():
     if frame % 90 == 0:
         names = ["起飞","搜索","接近","开臂下降","闭臂","返航","完成"]
         t = f"({target_pos[0]:.2f},{target_pos[1]:.2f})" if target_pos is not None else "-"
-        print(f"  [{frame:4d}] ({current[0]:.2f},{current[1]:.2f},{current[2]:.2f}) "
-              f"[{names[phase]}] arm={gripper._current_angle:.0f}°")
+        st = drone.get_state()
+        act_z = f"{st['position'][2]:.2f}" if st else "--"
+        obj_z = "--"
+        if grabbed and target_translate is not None:
+            ot = target_translate.Get()
+            if ot is not None:
+                obj_z = f"{ot[2]:.2f}"
+        print(f"  [{frame:4d}] drone_z={act_z} obj_z={obj_z} [{names[phase]}] {t}")
 
 simulation_app.close()
