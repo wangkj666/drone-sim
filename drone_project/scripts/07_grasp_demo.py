@@ -2,11 +2,13 @@
 侧装旋转臂抓取演示
 起飞→搜索→接近→开臂→下降→闭臂夹取→携物返航
 """
+import os
 import torch
 from isaacsim import SimulationApp
-simulation_app = SimulationApp({"headless": False})
+_HEADLESS = os.environ.get("DRONE_HEADLESS", "0") == "1"
+simulation_app = SimulationApp({"headless": _HEADLESS})
 
-import sys, os
+import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
@@ -35,9 +37,8 @@ stage = omni.usd.get_context().get_stage()
 TARGET_POS = np.array([0.30, 0.0, 0.07])  # 0.07 = 半高, 底面刚好贴地
 CAMERA_OFFSET = 0.15   # 相机装在机心下方 0.15m
 TARGET_TOP = 0.14      # 目标顶面离地高度 (用于修正测距)
-# 夹爪机构装在机身前侧 y=-0.15 (为了臂旋转时不穿机身),
-# 所以目标要停在无人机【前方】0.15m 处, 正好落进爪口。
-GRIPPER_Y = 0.15
+# 夹爪装在机身正中央, 目标停在正下方即可
+GRIPPER_Y = 0.0
 create_prim("/World/Target", "Cube",
             position=TARGET_POS,
             scale=np.array([0.05, 0.05, 0.07]))   # 0.10×0.10×0.14, 宽<0.125
@@ -124,7 +125,7 @@ while simulation_app.is_running():
     elif phase == 1:
         hold -= 1
         if target_pos is not None:
-            # 夹爪在机身前方, 无人机停在目标后方 0.15m, 让目标落进爪口
+            # 夹爪居中, 无人机停在目标正上方
             hover_target[:2] = target_pos[:2] + np.array([0.0, GRIPPER_Y])
             phase = 2
             print(f"  [{frame:4d}] 发现目标 ({target_pos[0]:.2f},{target_pos[1]:.2f}), 飞至夹爪对准")

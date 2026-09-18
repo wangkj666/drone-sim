@@ -36,7 +36,7 @@ stage = omni.usd.get_context().get_stage()
 
 # ── 栖枝: 立柱 + 横杆 (横杆沿Y, 穿过旋翼之间) ──
 PERCH_X, PERCH_Y, PERCH_Z = 0.5, 0.0, 1.30
-BAR_R, BAR_HALF = 0.020, 0.45    # 杆径4cm, 配合爪口尺寸
+BAR_R, BAR_HALF = 0.022, 0.45    # 杆径4.4cm, 实测与合拢后的爪口刚好贴合
 
 def make_cyl(path, translate, scale, color, rot_x=0.0):
     """圆柱: 需要 [平移, 旋转, 缩放] 的顺序, 否则旋转后形状会被压扁"""
@@ -73,9 +73,9 @@ dt = config["sim"]["physics_dt"]
 speed = 0.45
 current = np.array(config["drone"]["init_position"], dtype=float)
 
-# 栖息高度: 夹爪朝上时爪口在机心上方约6cm, 让横杆正好落进爪口。
-# (再低会让横杆插进机身顶板, 实测机身顶面在机心上方0.02)
-PERCH_DRONE_Z = PERCH_Z - 0.060
+# 栖息高度: 夹爪朝上合拢到 -160° 时, 臂表面正好贴住杆面, 接触点在机心上方 0.075。
+# 横杆底面 = 0.075-0.022 = 0.053, 远高于机身顶面(0.02), 不会压到机身。
+PERCH_DRONE_Z = PERCH_Z - 0.075
 
 # 状态机
 # 0起飞 1飞到杆下 2夹爪转朝上 3上升入爪口 4闭臂 5栖息 6脱离 7完成
