@@ -35,7 +35,9 @@ stage = omni.usd.get_context().get_stage()
 TARGET_POS = np.array([0.30, 0.0, 0.07])  # 0.07 = 半高, 底面刚好贴地
 CAMERA_OFFSET = 0.15   # 相机装在机心下方 0.15m
 TARGET_TOP = 0.14      # 目标顶面离地高度 (用于修正测距)
-GRIPPER_X = 0.0        # 弯齿条左右对称, 目标停在机身正下方即可
+# 夹爪机构装在机身前侧 y=-0.15 (为了臂旋转时不穿机身),
+# 所以目标要停在无人机【前方】0.15m 处, 正好落进爪口。
+GRIPPER_Y = 0.15
 create_prim("/World/Target", "Cube",
             position=TARGET_POS,
             scale=np.array([0.05, 0.05, 0.07]))   # 0.10×0.10×0.14, 宽<0.125
@@ -122,17 +124,17 @@ while simulation_app.is_running():
     elif phase == 1:
         hold -= 1
         if target_pos is not None:
-            # 夹爪在机身右侧, 所以无人机要停在目标左侧, 让目标落在两臂之间
-            hover_target[:2] = target_pos[:2] + np.array([-GRIPPER_X, 0.0])
+            # 夹爪在机身前方, 无人机停在目标后方 0.15m, 让目标落进爪口
+            hover_target[:2] = target_pos[:2] + np.array([0.0, GRIPPER_Y])
             phase = 2
             print(f"  [{frame:4d}] 发现目标 ({target_pos[0]:.2f},{target_pos[1]:.2f}), 飞至夹爪对准")
 
     elif phase == 2:
         if target_pos is not None:
-            hover_target[:2] = target_pos[:2] + np.array([-GRIPPER_X, 0.0])
+            hover_target[:2] = target_pos[:2] + np.array([0.0, GRIPPER_Y])
         if d < 0.3:
             gripper.open()  # 先张开臂
-            hover_target[2] = 0.16   # 降到弯齿条爪口正好卡住目标中部的高度
+            hover_target[2] = 0.15   # 爪口咬合高度(实测 -0.078) 对上目标中部(0.07)
             phase, hold = 3, 60
             print(f"  [{frame:4d}] 开臂, 下降抓取")
 

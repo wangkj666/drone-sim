@@ -49,31 +49,38 @@ class Gripper:
         GREY = (0.34, 0.34, 0.37)
         RED = (0.85, 0.10, 0.10)
 
-        # ── 1. 中间: 舵机盒 + 齿轮组 (都贴在机身下方, 互相啮合) ──
+        # 整套夹爪前移到机身【外侧平面】(y = GRIP_Y)。
+        # 关键: 臂的弧段旋转时必然扫过自身回转中心连线,
+        # 若臂与机身同平面(y=0), 转到朝上时必定穿过机身板。
+        # 移到 y=-0.15 (机身板只到 y=-0.10) 后, 臂在空处旋转, 不再穿模。
+        GRIP_Y = -0.15
+
+        # ── 1. 连接梁 (把机构连到机身) ──
+        part(f"{self.prim_path}/Mount", "Cube",
+             (0.0, -0.122, 0.0), (0.060, 0.030, 0.014), GREY)
+
+        # ── 2. 舵机盒 + 齿轮组 (在机构平面内, 两轮啮合) ──
         part(f"{self.prim_path}/ServoBox", "Cube",
-             (0.0, 0.0, -0.030), (0.036, 0.026, 0.026), DARK)
+             (0.0, GRIP_Y, -0.028), (0.036, 0.026, 0.026), DARK)
         self._add_gear(part, f"{self.prim_path}/GearR",
-                       (0.030, 0.0, -0.062), 0.028, 0.012, 12, GREY)
+                       (0.030, GRIP_Y, -0.058), 0.028, 0.012, 12, GREY)
         self._add_gear(part, f"{self.prim_path}/GearL",
-                       (-0.030, 0.0, -0.062), 0.028, 0.012, 12, GREY)
+                       (-0.030, GRIP_Y, -0.058), 0.028, 0.012, 12, GREY)
 
-        # ── 2. 两侧: 弯齿条臂 (用支架+轴连到机身, 不悬空) ──
+        # ── 3. 两侧: 弯齿条臂 ──
         for name, s in [("Right", 1), ("Left", -1)]:
-            x_off = s * 0.115
+            x_off = s * 0.105
 
-            # 支架: 从机身侧沿伸到枢轴
-            part(f"{self.prim_path}/{name}/Bracket", "Cube",
-                 (s * 0.093, 0.0, 0.0), (0.028, 0.030, 0.014), GREY)
-            # 枢轴 (转轴, 沿Y方向)
+            # 枢轴 (转轴沿Y)
             part(f"{self.prim_path}/{name}/Axle", "Cylinder",
-                 (x_off, 0.0, 0.0), (0.016, 0.016, 0.032), GREY, rot_x=90.0)
+                 (x_off, GRIP_Y, 0.0), (0.016, 0.016, 0.030), GREY, rot_x=90.0)
 
             pivot_path = f"{self.prim_path}/{name}/Pivot"
             create_prim(pivot_path, "Xform")
             pivot_xf = UsdGeom.Xformable(stage.GetPrimAtPath(pivot_path))
             pivot_xf.ClearXformOpOrder()
             pivot_xf.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(
-                Gf.Vec3d(x_off, 0.0, 0.0))
+                Gf.Vec3d(x_off, GRIP_Y, 0.0))
             rot_op = pivot_xf.AddRotateYOp(UsdGeom.XformOp.PrecisionDouble)
             rot_op.Set(-45.0 * s)
             self._pivot_data.append((rot_op, s))
@@ -81,12 +88,13 @@ class Gripper:
             # 弯齿条
             self._add_curved_rack(part, pivot_path, s)
 
-            # 连杆 + 关节 (随臂运动, 不会脱开)
-            part(f"{pivot_path}/Link", "Cube",
-                 (-s * 0.050, 0.0, -0.150), (0.005, 0.010, 0.052),
-                 (0.30, 0.30, 0.62), rot_y=-s * 40.0)
-            part(f"{pivot_path}/Joint", "Sphere",
-                 (-s * 0.092, 0.0, -0.190), (0.014, 0.014, 0.014), RED)
+        # ── 4. 中心连杆 + 关节 (固定在机构底座上, 不会甩飞) ──
+        for s, nm in ((1, "R"), (-1, "L")):
+            part(f"{self.prim_path}/Link{nm}", "Cube",
+                 (s * 0.038, GRIP_Y, -0.098), (0.005, 0.010, 0.045),
+                 (0.30, 0.30, 0.62), rot_y=-s * 42.0)
+        part(f"{self.prim_path}/Joint", "Sphere",
+             (0.0, GRIP_Y, -0.128), (0.015, 0.015, 0.015), RED)
 
         self._built = True
         print("[Gripper] 双侧弯齿条夹爪已安装 (可朝下/朝上)")
@@ -107,9 +115,9 @@ class Gripper:
     @staticmethod
     def _add_curved_rack(part, pivot_path, s):
         """弯齿条: 从枢轴外侧绕过, 尖端弯向中间; 齿在凹面(朝枢轴一侧)"""
-        # 注意: 曲率半径必须小于【枢轴到中线的距离】(0.115m),
+        # 注意: 曲率半径必须小于【枢轴到中线的距离】(0.105m),
         # 否则臂转到朝上时会扫过中线, 两条臂互相穿插。
-        R = 0.105                       # 曲率半径
+        R = 0.095                       # 曲率半径
         th0, th1 = np.radians(8.0), np.radians(125.0)
         n_seg = 12
         arm_half_t = 0.010              # 臂厚(半径方向)
