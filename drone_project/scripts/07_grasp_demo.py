@@ -132,7 +132,7 @@ while simulation_app.is_running():
             hover_target[:2] = target_pos[:2] + np.array([-GRIPPER_X, 0.0])
         if d < 0.3:
             gripper.open()  # 先张开臂
-            hover_target[2] = 0.26   # 降到弯齿条能包住目标的高度
+            hover_target[2] = 0.16   # 降到弯齿条爪口正好卡住目标中部的高度
             phase, hold = 3, 60
             print(f"  [{frame:4d}] 开臂, 下降抓取")
 

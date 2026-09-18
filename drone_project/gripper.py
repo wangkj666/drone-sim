@@ -107,8 +107,10 @@ class Gripper:
     @staticmethod
     def _add_curved_rack(part, pivot_path, s):
         """弯齿条: 从枢轴外侧绕过, 尖端弯向中间; 齿在凹面(朝枢轴一侧)"""
-        R = 0.170                       # 曲率半径
-        th0, th1 = np.radians(8.0), np.radians(122.0)
+        # 注意: 曲率半径必须小于【枢轴到中线的距离】(0.115m),
+        # 否则臂转到朝上时会扫过中线, 两条臂互相穿插。
+        R = 0.105                       # 曲率半径
+        th0, th1 = np.radians(8.0), np.radians(125.0)
         n_seg = 12
         arm_half_t = 0.010              # 臂厚(半径方向)
         arm_half_w = 0.022              # 臂宽(Y方向)
@@ -151,20 +153,21 @@ class Gripper:
             op.Set(float(self._cur * s))
 
     def open(self):
-        """两臂张开 (两尖端间距约0.22m)"""
-        self._grip = -26.0
+        """两臂张开 (爪口约0.230m)"""
+        self._grip = -30.0
 
     def close(self):
-        """两臂合拢夹紧 (两尖端间距约0.10m)"""
-        self._grip = -4.0
+        """两臂合拢夹紧 (爪口约0.095m, 夹住0.10m的目标)"""
+        self._grip = 10.0
 
     def point_down(self):
         """整体朝下 (抓地面目标)"""
         self._mode = 0.0
 
     def point_up(self):
-        """整体朝上 (向上抓取/栖息)"""
-        self._mode = 130.0
+        """整体朝上 (向上抓取/栖息)
+        105° 是实测值: 此时机心上方6cm处爪口约0.06m, 正好抱住栖枝横杆。"""
+        self._mode = 105.0
 
     def reset(self):
         """初始姿态: 两臂微微朝上张开 (备战状态)"""
