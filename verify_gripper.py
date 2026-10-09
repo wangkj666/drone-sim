@@ -1,10 +1,14 @@
-"""自检: 栖息姿态到底夹没夹住横杆?
+"""夹爪几何自检 —— 不看渲染图, 直接量几何
 
-不看渲染图 —— 渲染图上"看着像夹住了"是看不出来的(杆会从爪口漏下去)。
-改为用【真实 USD 变换】把每段臂的 8 个角点算出来, 量它到横杆轴线的最近距离。
-判据(意图): 臂表面贴住杆(|侵入| < 2mm) 且全程不穿机身、两臂不交叉。
+渲染图上"看着像夹住了"是看不出来的(实测横杆会从爪口漏下去), 所以改为
+用【真实 USD 变换】把每段臂的 8 个角点算出来, 量化两件事:
 
-用法:  python verify_perch.py     (结果写到 vp_out.txt)
+  1) 栖息抱杆: 臂表面到横杆轴线的最近距离 —— 要贴住(|侵入| < 2mm),
+     而且接触点要在杆心下方(托住), 不是侧向卡住
+  2) 全角度扫描: 整臂从 -185° 转到 +90°, 全程不许穿机身、不许越过中线
+     (任务链 `09_mission_demo.py` 里的 -160°→-30° 翻转就靠这条保证)
+
+用法:  python verify_gripper.py     (结果写到 vp_out.txt)
 """
 import torch
 from isaacsim import SimulationApp
@@ -114,6 +118,28 @@ for a in np.arange(-100.0, CLOSED - 1, -5.0):
     if hit or cross or md < R_BAR - 0.003:
         bad.append((round(float(a), 1), round(float(md), 4), hit, cross))
 out(f"异常角度: {bad if bad else '无 [OK]'}")
+
+# ── 全角度扫描: 两臂绕轴转的整个行程 ──
+# 两臂是镜像的, 所以"两臂交叉"等价于"右臂有点越过了中线 (x<0)"
+out("")
+out("=== 全角度扫描 (任务链的翻转路径 -160°→-30° 必须全程干净) ===")
+bad = []
+min_rx_all = 1e9
+for a in np.arange(-185.0, 91.0, 5.0):
+    set_angle(float(a))
+    min_rx = 1e9; hit = 0
+    for side in ("Right", "Left"):
+        for i in range(12):
+            for p in seg_corners(f"/World/Drone/Gripper/{side}/Pivot/Seg{i}"):
+                if side == "Right":
+                    min_rx = min(min_rx, p[0])
+                if abs(p[0]) < HX and abs(p[1]) < HY and abs(p[2] - DZ) < HZ:
+                    hit += 1
+    min_rx_all = min(min_rx_all, min_rx)
+    if hit or min_rx < 0.0:
+        bad.append((int(a), hit, round(min_rx, 4)))
+out(f"有问题的角度 (角度, 穿机身角点数, 右臂最内侧x): {bad if bad else '无 [OK]'}")
+out(f"全程右臂最内侧 x = {min_rx_all:+.4f} (>0 表示从未越过中线)")
 
 _log.close()
 app.close()
